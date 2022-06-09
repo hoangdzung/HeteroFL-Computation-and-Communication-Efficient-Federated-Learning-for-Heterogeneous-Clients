@@ -216,6 +216,7 @@ class Federation:
                         count[k] += 1
                 tmp_v[count[k] > 0] = tmp_v[count[k] > 0].div_(count[k][count[k] > 0])
                 v[count[k] > 0] = tmp_v[count[k] > 0].to(v.dtype)
+                # self.global_parameters[k] = v
         elif 'resnet' in cfg['model_name']:
             for k, v in self.global_parameters.items():
                 parameter_type = k.split('.')[-1]
@@ -251,6 +252,7 @@ class Federation:
                         count[k] += 1
                 tmp_v[count[k] > 0] = tmp_v[count[k] > 0].div_(count[k][count[k] > 0])
                 v[count[k] > 0] = tmp_v[count[k] > 0].to(v.dtype)
+                # self.global_parameters[k] = v
         elif cfg['model_name'] == 'transformer':
             for k, v in self.global_parameters.items():
                 parameter_type = k.split('.')[-1]
@@ -292,6 +294,7 @@ class Federation:
                         count[k] += 1
                 tmp_v[count[k] > 0] = tmp_v[count[k] > 0].div_(count[k][count[k] > 0])
                 v[count[k] > 0] = tmp_v[count[k] > 0].to(v.dtype)
+                # self.global_parameters[k] = v
         else:
             raise ValueError('Not valid model name')
 

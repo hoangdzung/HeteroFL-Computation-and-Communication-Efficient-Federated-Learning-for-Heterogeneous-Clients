@@ -148,6 +148,7 @@ def process_control():
     cfg['resnet'] = {'hidden_size': [64, 128, 256, 512]}
     cfg['transformer'] = {'embedding_size': 256, 'num_heads': 8, 'hidden_size': 512, 'num_layers': 4, 'dropout': 0.2}
     if cfg['data_name'] in ['MNIST']:
+        cfg['conv'] = {'hidden_size': [32, 64, 128, 256]}
         cfg['data_shape'] = [1, 28, 28]
         cfg['optimizer_name'] = 'SGD'
         cfg['lr'] = 1e-2
@@ -156,39 +157,40 @@ def process_control():
         cfg['scheduler_name'] = 'MultiStepLR'
         cfg['factor'] = 0.1
         if cfg['data_split_mode'] == 'iid':
-            cfg['num_epochs'] = {'global': 200, 'local': 5}
-            cfg['batch_size'] = {'train': 10, 'test': 50}
+            cfg['num_epochs'] = {'global': 10, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 50}
             cfg['milestones'] = [100]
         elif 'non-iid' in cfg['data_split_mode']:
-            cfg['num_epochs'] = {'global': 400, 'local': 5}
-            cfg['batch_size'] = {'train': 10, 'test': 50}
+            cfg['num_epochs'] = {'global': 100, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
             cfg['milestones'] = [200]
         elif cfg['data_split_mode'] == 'none':
             cfg['num_epochs'] = 200
-            cfg['batch_size'] = {'train': 100, 'test': 500}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
             cfg['milestones'] = [100]
         else:
             raise ValueError('Not valid data_split_mode')
     elif cfg['data_name'] in ['CIFAR10', 'CIFAR100']:
+        cfg['conv'] = {'hidden_size': [64, 128, 256, 512]}
         cfg['data_shape'] = [3, 32, 32]
         cfg['optimizer_name'] = 'SGD'
-        cfg['lr'] = 1e-1
+        cfg['lr'] = 0.1
         cfg['momentum'] = 0.9
         cfg['weight_decay'] = 5e-4
         cfg['scheduler_name'] = 'MultiStepLR'
         cfg['factor'] = 0.1
         if cfg['data_split_mode'] == 'iid':
-            cfg['num_epochs'] = {'global': 400, 'local': 5}
-            cfg['batch_size'] = {'train': 10, 'test': 50}
-            cfg['milestones'] = [150, 250]
+            cfg['num_epochs'] = {'global': 100, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [100]
         elif 'non-iid' in cfg['data_split_mode']:
-            cfg['num_epochs'] = {'global': 800, 'local': 5}
-            cfg['batch_size'] = {'train': 10, 'test': 50}
-            cfg['milestones'] = [300, 500]
+            cfg['num_epochs'] = {'global': 100, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [200]
         elif cfg['data_split_mode'] == 'none':
-            cfg['num_epochs'] = 400
-            cfg['batch_size'] = {'train': 100, 'test': 500}
-            cfg['milestones'] = [150, 250]
+            cfg['num_epochs'] = 200
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [100]
         else:
             raise ValueError('Not valid data_split_mode')
     elif cfg['data_name'] in ['PennTreebank', 'WikiText2', 'WikiText103']:

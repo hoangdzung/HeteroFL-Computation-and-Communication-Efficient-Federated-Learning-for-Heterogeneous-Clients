@@ -73,10 +73,9 @@ def runExperiment():
     federation = Federation(global_parameters, cfg['model_rate'], label_split)
     for epoch in range(last_epoch, cfg['num_epochs']['global'] + 1):
         logger.safe(True)
-        test_local_parameters, test_user_idx = train(dataset['train'], data_split['train'], label_split, federation, model, optimizer, logger, epoch)
-        test_models = stats(dataset['train'],test_local_parameters, test_user_idx)
-        for test_model in test_models:
-            test(dataset['test'], data_split['test'], label_split, test_model, logger, epoch)
+        train(dataset['train'], data_split['train'], label_split, federation, model, optimizer, logger, epoch)
+        test_model = stats(dataset['train'], model)
+        test(dataset['test'], data_split['test'], label_split, test_model, logger, epoch)
         if cfg['scheduler_name'] == 'ReduceLROnPlateau':
             scheduler.step(metrics=logger.mean['train/{}'.format(cfg['pivot_metric'])])
         else:
@@ -100,7 +99,7 @@ def runExperiment():
 def train(dataset, data_split, label_split, federation, global_model, optimizer, logger, epoch):
     global_model.load_state_dict(federation.global_parameters)
     global_model.train(True)
-    local, local_parameters, user_idx, param_idx, test_local_parameters, test_user_idx = make_local(dataset, data_split, label_split, federation)
+    local, local_parameters, user_idx, param_idx = make_local(dataset, data_split, label_split, federation)
     num_active_users = len(local)
     lr = optimizer.param_groups[0]['lr']
     start_time = time.time()
@@ -122,25 +121,21 @@ def train(dataset, data_split, label_split, federation, global_model, optimizer,
             logger.write('train', cfg['metric_name']['train']['Local'])
     federation.combine(local_parameters, param_idx, user_idx)
     global_model.load_state_dict(federation.global_parameters)
-    return test_local_parameters, test_user_idx
+    return
 
 
-def stats(dataset, test_local_parameters, test_user_idx):
+def stats(dataset, model):
     with torch.no_grad():
+        test_model = eval('models.{}(model_rate=cfg["global_model_rate"], track=True).to(cfg["device"])'
+                          .format(cfg['model_name']))
+        test_model.load_state_dict(model.state_dict(), strict=False)
         data_loader = make_data_loader({'train': dataset})['train']
-        test_models = []
-        for i, user in enumerate(test_user_idx):
-            test_model = eval('models.{}(model_rate=cfg["model_rate"][user], track=True).to(cfg["device"])'
-                            .format(cfg['model_name']))
-            test_model.load_state_dict(test_local_parameters[i], strict=False)
-        
-            test_model.train(True)
-            for i, input in enumerate(data_loader):
-                input = collate(input)
-                input = to_device(input, cfg['device'])
-                test_model(input)
-            test_models.append(test_model)
-        return test_models
+        test_model.train(True)
+        for i, input in enumerate(data_loader):
+            input = collate(input)
+            input = to_device(input, cfg['device'])
+            test_model(input)
+    return test_model
 
 
 def test(dataset, data_split, label_split, model, logger, epoch):
@@ -157,7 +152,6 @@ def test(dataset, data_split, label_split, model, logger, epoch):
         #         output = model(input)
         #         output['loss'] = output['loss'].mean() if cfg['world_size'] > 1 else output['loss']
         #         evaluation = metric.evaluate(cfg['metric_name']['test']['Local'], input, output)
-        #         print(evaluation)
         #         logger.append(evaluation, 'test', input_size)
         data_loader = make_data_loader({'test': dataset})['test']
         for i, input in enumerate(data_loader):
@@ -179,18 +173,13 @@ def test(dataset, data_split, label_split, model, logger, epoch):
 def make_local(dataset, data_split, label_split, federation):
     num_active_users = int(np.ceil(cfg['frac'] * cfg['num_users']))
     user_idx = torch.arange(cfg['num_users'])[torch.randperm(cfg['num_users'])[:num_active_users]].tolist()
-
-    selected_user_idx = [cfg['model_rate'].index(model_rate) for model_rate in sorted(list(set(cfg["model_rate"])))]
-
-    user_idx+= selected_user_idx
-
     local_parameters, param_idx = federation.distribute(user_idx)
     local = [None for _ in range(num_active_users)]
     for m in range(num_active_users):
         model_rate_m = federation.model_rate[user_idx[m]]
         data_loader_m = make_data_loader({'train': SplitDataset(dataset, data_split[user_idx[m]])})['train']
         local[m] = Local(model_rate_m, data_loader_m, label_split[user_idx[m]])
-    return local, local_parameters[:-len(selected_user_idx)], user_idx[:-len(selected_user_idx)], param_idx, local_parameters[-len(selected_user_idx):], user_idx[-len(selected_user_idx):]
+    return local, local_parameters, user_idx, param_idx
 
 
 class Local:

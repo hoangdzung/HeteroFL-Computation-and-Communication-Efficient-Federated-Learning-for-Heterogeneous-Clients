@@ -65,48 +65,70 @@ def iid(dataset, num_users):
         label = dataset.token
     else:
         raise ValueError('Not valid data name')
-    num_items = int(len(dataset) / num_users)
-    data_split, idx = {}, list(range(len(dataset)))
-    label_split = {}
+
+    d_idxs = np.random.permutation(len(dataset))
+    local_datas = np.array_split(d_idxs, num_users)
+    data_split, label_split = {}, {}
+
+    # num_items = int(len(dataset) / num_users)
+    # data_split, idx = {}, list(range(len(dataset)))
+    # label_split = {}
     for i in range(num_users):
-        num_items_i = min(len(idx), num_items)
-        data_split[i] = torch.tensor(idx)[torch.randperm(len(idx))[:num_items_i]].tolist()
+        data_split[i] = local_datas[i].tolist()
         label_split[i] = torch.unique(label[data_split[i]]).tolist()
-        idx = list(set(idx) - set(data_split[i]))
+
     return data_split, label_split
 
 
 def non_iid(dataset, num_users, label_split=None):
     label = np.array(dataset.target)
     cfg['non-iid-n'] = int(cfg['data_split_mode'].split('-')[-1])
-    shard_per_user = cfg['non-iid-n']
-    data_split = {i: [] for i in range(num_users)}
-    label_idx_split = {}
-    for i in range(len(label)):
-        label_i = label[i].item()
-        if label_i not in label_idx_split:
-            label_idx_split[label_i] = []
-        label_idx_split[label_i].append(i)
-    shard_per_class = int(shard_per_user * num_users / cfg['classes_size'])
-    for label_i in label_idx_split:
-        label_idx = label_idx_split[label_i]
-        num_leftover = len(label_idx) % shard_per_class
-        leftover = label_idx[-num_leftover:] if num_leftover > 0 else []
-        new_label_idx = np.array(label_idx[:-num_leftover]) if num_leftover > 0 else np.array(label_idx)
-        new_label_idx = new_label_idx.reshape((shard_per_class, -1)).tolist()
-        for i, leftover_label_idx in enumerate(leftover):
-            new_label_idx[i] = np.concatenate([new_label_idx[i], [leftover_label_idx]])
-        label_idx_split[label_i] = new_label_idx
-    if label_split is None:
-        label_split = list(range(cfg['classes_size'])) * shard_per_class
-        label_split = torch.tensor(label_split)[torch.randperm(len(label_split))].tolist()
-        label_split = np.array(label_split).reshape((num_users, -1)).tolist()
-        for i in range(len(label_split)):
-            label_split[i] = np.unique(label_split[i]).tolist()
+
+    K = len(set(label))
+    # pair is (id, label)
+
+    dpairs = [[did, dataset[did]['label'].item()] for did in range(len(dataset))]
+    num = cfg['non-iid-n'] # each client contains only 'num' labels
+
+    local_datas = [[] for _ in range(num_users)]
+    if num == K:
+        for k in range(K):
+            # get list of ids which has label k
+            idx_k = [p[0] for p in dpairs if p[1]==k]
+            np.random.shuffle(idx_k)
+            split = np.array_split(idx_k, num_users)
+            for cid in range(num_users):
+                local_datas[cid].extend(split[cid].tolist())
+    else:
+        times = [0 for _ in range(num_users)]
+        contain = []
+        for i in range(num_users):
+            current = [i % K] # set of label appear in client i
+            times[i % K] += 1 # the total number of appearance of that label in all client
+            j = 1 # the current size of the label set
+            while (j < num):
+                ind = np.random.randint(0, K) # get a random label
+                if (ind not in current): # if label not in current label set of the client
+                    j = j + 1 
+                    current.append(ind) # add that label to the current label set
+                    times[ind] += 1 
+            contain.append(current)
+        for k in range(K):
+            idx_k = [p[0] for p in dpairs if p[1]==k]
+            np.random.shuffle(idx_k)
+            split = np.array_split(idx_k, times[k])
+            ids = 0
+            # distribute subset of ids w.r.t the label to all clients having that label
+            for cid in range(num_users):
+                if k in contain[cid]:
+                    local_datas[cid].extend(split[ids].tolist())
+                    ids += 1
+
+    data_split, label_split={},{}
     for i in range(num_users):
-        for label_i in label_split[i]:
-            idx = torch.arange(len(label_idx_split[label_i]))[torch.randperm(len(label_idx_split[label_i]))[0]].item()
-            data_split[i].extend(label_idx_split[label_i].pop(idx))
+        data_split[i] = local_datas[i]
+        label_split[i] = list(set(label[data_split[i]]))
+
     return data_split, label_split
 
 
