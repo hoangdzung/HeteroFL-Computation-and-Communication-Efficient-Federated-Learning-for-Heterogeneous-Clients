@@ -76,6 +76,11 @@ def runExperiment():
         train(dataset['train'], data_split['train'], label_split, federation, model, optimizer, logger, epoch)
         test_model = stats(dataset['train'], model)
         test(dataset['test'], data_split['test'], label_split, test_model, logger, epoch)
+
+        # test_models, model_rates = stats_all(dataset['train'], federation)
+        # for test_model,model_rate in zip(test_models, model_rates):
+        #     test(dataset['test'], data_split['test'], label_split, test_model, logger, epoch,str(model_rate))
+
         if cfg['scheduler_name'] == 'ReduceLROnPlateau':
             scheduler.step(metrics=logger.mean['train/{}'.format(cfg['pivot_metric'])])
         else:
@@ -137,8 +142,27 @@ def stats(dataset, model):
             test_model(input)
     return test_model
 
+def stats_all(dataset, federation):
+    test_models = []
+    model_rates = sorted(list(set(cfg['model_rate'])))
+    user_idx = [cfg['model_rate'].index(model_rate) for model_rate in model_rates]
+    local_parameters, _ = federation.distribute(user_idx)
+    for model_rate, local_parameter in zip(model_rates, local_parameters):
+        with torch.no_grad():
 
-def test(dataset, data_split, label_split, model, logger, epoch):
+            test_model = eval('models.{}(model_rate=model_rate, track=True).to(cfg["device"])'
+                            .format(cfg['model_name']))
+            test_model.load_state_dict(local_parameter, strict=False)
+            data_loader = make_data_loader({'train': dataset})['train']
+            test_model.train(True)
+            for i, input in enumerate(data_loader):
+                input = collate(input)
+                input = to_device(input, cfg['device'])
+                test_model(input)
+        test_models.append(copy.deepcopy(test_model))
+    return test_models, model_rates
+
+def test(dataset, data_split, label_split, model, logger, epoch, key=''):
     with torch.no_grad():
         metric = Metric()
         model.train(False)
@@ -161,12 +185,12 @@ def test(dataset, data_split, label_split, model, logger, epoch):
             output = model(input)
             output['loss'] = output['loss'].mean() if cfg['world_size'] > 1 else output['loss']
             evaluation = metric.evaluate(cfg['metric_name']['test']['Global'], input, output)
-            logger.append(evaluation, 'test', input_size)
+            logger.append(evaluation, 'test'+key, input_size)
         info = {'info': ['Model: {}'.format(cfg['model_tag']),
                          'Test Epoch: {}({:.0f}%)'.format(epoch, 100.)]}
-        logger.append(info, 'test', mean=False)
+        logger.append(info, 'test'+key, mean=False)
         # logger.write('test', cfg['metric_name']['test']['Local'] + cfg['metric_name']['test']['Global'])
-        logger.write('test', cfg['metric_name']['test']['Global'])
+        logger.write('test'+key, cfg['metric_name']['test']['Global'])
     return
 
 
