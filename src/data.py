@@ -6,11 +6,15 @@ from torchvision import transforms
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
 
+import medmnist_class
+import os 
 
 def fetch_dataset(data_name, subset):
     dataset = {}
     print('fetching data {}...'.format(data_name))
     root = './data/{}'.format(data_name)
+    if not os.path.isdir(root):
+        os.makedirs(root)
     if data_name == 'MNIST':
         dataset['train'] = datasets.MNIST(root=root, split='train', subset=subset, transform=datasets.Compose(
             [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]))
@@ -28,6 +32,17 @@ def fetch_dataset(data_name, subset):
     elif data_name in ['PennTreebank', 'WikiText2', 'WikiText103']:
         dataset['train'] = eval('datasets.{}(root=root, split=\'train\')'.format(data_name))
         dataset['test'] = eval('datasets.{}(root=root, split=\'test\')'.format(data_name))
+    elif data_name in medmnist_class.medmnist_classes :
+        dataset['train'] = medmnist_class.medmnist_classes[data_name](root=root, split='train', download=True, transform=transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize(mean=[.5], std=[.5])]))
+        dataset['train'].target = dataset['train'].labels.squeeze().tolist()
+
+        dataset['test'] = medmnist_class.medmnist_classes[data_name](root=root, split='test', download=True, transform=transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize(mean=[.5], std=[.5])]))
+        dataset['test'].target = dataset['test'].labels.squeeze().tolist()
+
     else:
         raise ValueError('Not valid dataset name')
     print('data ready')
@@ -59,7 +74,7 @@ def split_dataset(dataset, num_users, data_split_mode):
 
 
 def iid(dataset, num_users):
-    if cfg['data_name'] in ['MNIST', 'CIFAR10']:
+    if cfg['data_name'] in ['MNIST', 'CIFAR10'] or cfg['data_name'] in medmnist_class.medmnist_classes:
         label = torch.tensor(dataset.target)
     elif cfg['data_name'] in ['WikiText2']:
         label = dataset.token
@@ -86,8 +101,10 @@ def non_iid(dataset, num_users, label_split=None):
 
     K = len(set(label))
     # pair is (id, label)
-
-    dpairs = [[did, dataset[did]['label'].item()] for did in range(len(dataset))]
+    if cfg['data_name'] in medmnist_class.medmnist_classes:
+        dpairs = [[did, dataset[did][1]] for did in range(len(dataset))]
+    else:
+        dpairs = [[did, dataset[did]['label'].item()] for did in range(len(dataset))]
     num = cfg['non-iid-n'] # each client contains only 'num' labels
 
     local_datas = [[] for _ in range(num_users)]

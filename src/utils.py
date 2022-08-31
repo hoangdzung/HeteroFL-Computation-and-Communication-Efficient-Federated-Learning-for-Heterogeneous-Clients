@@ -7,7 +7,7 @@ import torch.optim as optim
 from itertools import repeat
 from torchvision.utils import save_image
 from config import cfg
-
+import medmnist_class
 
 def check_exists(path):
     return os.path.exists(path)
@@ -105,13 +105,15 @@ def process_dataset(dataset):
         cfg['num_tokens'] = len(dataset['train'].vocab)
         for split in dataset:
             dataset[split] = batchify(dataset[split], cfg['batch_size'][split])
+    elif cfg['data_name'] in medmnist_class.medmnist_classes:
+        cfg['classes_size'] = medmnist_class.medmnist_n_classes[cfg['data_name']]
     else:
         raise ValueError('Not valid data name')
     return
 
 
 def process_control():
-    cfg['model_split_rate'] = {'a': 1, 'b': 0.5, 'c': 0.25, 'd': 0.125, 'e': 0.0625}
+    cfg['model_split_rate'] = {'a': 1, 'b': 0.5, 'c': 0.25, 'd': 0.125, 'e': 0.0625, 'f':0.03125}
     cfg['fed'] = int(cfg['control']['fed'])
     cfg['num_users'] = int(cfg['control']['num_users'])
     cfg['frac'] = float(cfg['control']['frac'])
@@ -210,6 +212,29 @@ def process_control():
             cfg['num_epochs'] = 100
             cfg['batch_size'] = {'train': 100, 'test': 100}
             cfg['milestones'] = [25, 50]
+        else:
+            raise ValueError('Not valid data_split_mode')
+    elif cfg['data_name'] in medmnist_class.medmnist_classes:
+        cfg['resnet'] = {'hidden_size': [32, 64, 128]}
+        cfg['data_shape'] = [medmnist_class.medmnist_n_channels[cfg['data_name']], 28, 28]
+        cfg['optimizer_name'] = 'SGD'
+        cfg['lr'] = 0.001
+        cfg['momentum'] = 0.9
+        cfg['weight_decay'] = 0
+        cfg['scheduler_name'] = 'None'
+        cfg['factor'] = 0.1
+        if cfg['data_split_mode'] == 'iid':
+            cfg['num_epochs'] = {'global': 100, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [100]
+        elif 'non-iid' in cfg['data_split_mode']:
+            cfg['num_epochs'] = {'global': 100, 'local': 4}
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [100]
+        elif cfg['data_split_mode'] == 'none':
+            cfg['num_epochs'] = 100
+            cfg['batch_size'] = {'train': 4, 'test': 64}
+            cfg['milestones'] = [100]
         else:
             raise ValueError('Not valid data_split_mode')
     else:
@@ -347,6 +372,9 @@ def resume(model, model_tag, optimizer=None, scheduler=None, load_tag='checkpoin
 
 
 def collate(input):
+    if type(input) == list:
+        return {'img': input[0], 'label': input[1]}
+
     for k in input:
         input[k] = torch.stack(input[k], 0)
     return input
