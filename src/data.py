@@ -38,6 +38,11 @@ def fetch_dataset(data_name, subset):
              transforms.Normalize(mean=[.5], std=[.5])]))
         dataset['train'].target = dataset['train'].labels.squeeze().tolist()
 
+        dataset['val'] = medmnist_class.medmnist_classes[data_name](root=root, split='train', download=True, transform=transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize(mean=[.5], std=[.5])]))
+        dataset['val'].target = dataset['val'].labels.squeeze().tolist()
+
         dataset['test'] = medmnist_class.medmnist_classes[data_name](root=root, split='test', download=True, transform=transforms.Compose(
             [transforms.ToTensor(),
              transforms.Normalize(mean=[.5], std=[.5])]))

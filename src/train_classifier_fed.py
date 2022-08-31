@@ -31,6 +31,7 @@ cfg['control_name'] = '_'.join([cfg['control'][k] for k in cfg['control']])
 cfg['pivot_metric'] = 'Global-Accuracy'
 cfg['pivot'] = -float('inf')
 cfg['metric_name'] = {'train': {'Local': ['Local-Loss', 'Local-Accuracy']},
+                      'val': {'Local': ['Local-Loss', 'Local-Accuracy'], 'Global': ['Global-Loss', 'Global-Accuracy']},
                       'test': {'Local': ['Local-Loss', 'Local-Accuracy'], 'Global': ['Global-Loss', 'Global-Accuracy']}}
 
 
@@ -69,13 +70,15 @@ def runExperiment():
         logger = Logger(logger_path)
     if data_split is None:
         data_split, label_split = split_dataset(dataset, cfg['num_users'], cfg['data_split_mode'])
+
     global_parameters = model.state_dict()
     federation = Federation(global_parameters, cfg['model_rate'], label_split)
     for epoch in range(last_epoch, cfg['num_epochs']['global'] + 1):
         logger.safe(True)
         train(dataset['train'], data_split['train'], label_split, federation, model, optimizer, logger, epoch)
         test_model = stats(dataset['train'], model)
-        test(dataset['test'], data_split['test'], label_split, test_model, logger, epoch)
+        test(dataset['val'], test_model, logger, epoch,'val')
+        test(dataset['test'], test_model, logger, epoch,'test')
 
         # test_models, model_rates = stats_all(dataset['train'], federation)
         # for test_model,model_rate in zip(test_models, model_rates):
@@ -162,7 +165,7 @@ def stats_all(dataset, federation):
         test_models.append(copy.deepcopy(test_model))
     return test_models, model_rates
 
-def test(dataset, data_split, label_split, model, logger, epoch, key=''):
+def test(dataset, model, logger, epoch, key=''):
     with torch.no_grad():
         metric = Metric()
         model.train(False)
@@ -184,13 +187,13 @@ def test(dataset, data_split, label_split, model, logger, epoch, key=''):
             input = to_device(input, cfg['device'])
             output = model(input)
             output['loss'] = output['loss'].mean() if cfg['world_size'] > 1 else output['loss']
-            evaluation = metric.evaluate(cfg['metric_name']['test']['Global'], input, output)
-            logger.append(evaluation, 'test'+key, input_size)
+            evaluation = metric.evaluate(cfg['metric_name'][key]['Global'], input, output)
+            logger.append(evaluation, key, input_size)
         info = {'info': ['Model: {}'.format(cfg['model_tag']),
                          'Test Epoch: {}({:.0f}%)'.format(epoch, 100.)]}
-        logger.append(info, 'test'+key, mean=False)
+        logger.append(info, key, mean=False)
         # logger.write('test', cfg['metric_name']['test']['Local'] + cfg['metric_name']['test']['Global'])
-        logger.write('test'+key, cfg['metric_name']['test']['Global'])
+        logger.write(key, cfg['metric_name'][key]['Global'])
     return
 
 
