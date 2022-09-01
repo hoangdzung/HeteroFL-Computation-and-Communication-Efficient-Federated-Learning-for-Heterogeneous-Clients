@@ -103,8 +103,8 @@ def iid(dataset, num_users):
 def non_iid(dataset, num_users, label_split=None):
     label = np.array(dataset.target)
     cfg['non-iid-n'] = int(cfg['data_split_mode'].split('-')[-2])
-    skew = float(cfg['data_split_mode'].split('-')[-2])
     dist = int(cfg['data_split_mode'].split('-')[-1])
+    skew = cfg['non-iid-n']*0.1
 
     K = len(set(label))
     # pair is (id, label)
