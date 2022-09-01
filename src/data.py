@@ -102,7 +102,9 @@ def iid(dataset, num_users):
 
 def non_iid(dataset, num_users, label_split=None):
     label = np.array(dataset.target)
-    cfg['non-iid-n'] = int(cfg['data_split_mode'].split('-')[-1])
+    cfg['non-iid-n'] = int(cfg['data_split_mode'].split('-')[-2])
+    skew = float(cfg['data_split_mode'].split('-')[-2])
+    dist = int(cfg['data_split_mode'].split('-')[-1])
 
     K = len(set(label))
     # pair is (id, label)
@@ -112,39 +114,80 @@ def non_iid(dataset, num_users, label_split=None):
         dpairs = [[did, dataset[did]['label'].item()] for did in range(len(dataset))]
     num = cfg['non-iid-n'] # each client contains only 'num' labels
 
-    local_datas = [[] for _ in range(num_users)]
-    if num == K:
-        for k in range(K):
-            # get list of ids which has label k
-            idx_k = [p[0] for p in dpairs if p[1]==k]
-            np.random.shuffle(idx_k)
-            split = np.array_split(idx_k, num_users)
-            for cid in range(num_users):
-                local_datas[cid].extend(split[cid].tolist())
+    if dist==1:
+        local_datas = [[] for _ in range(num_users)]
+        if num == K:
+            for k in range(K):
+                # get list of ids which has label k
+                idx_k = [p[0] for p in dpairs if p[1]==k]
+                np.random.shuffle(idx_k)
+                split = np.array_split(idx_k, num_users)
+                for cid in range(num_users):
+                    local_datas[cid].extend(split[cid].tolist())
+        else:
+            times = [0 for _ in range(num_users)]
+            contain = []
+            for i in range(num_users):
+                current = [i % K] # set of label appear in client i
+                times[i % K] += 1 # the total number of appearance of that label in all client
+                j = 1 # the current size of the label set
+                while (j < num):
+                    ind = np.random.randint(0, K) # get a random label
+                    if (ind not in current): # if label not in current label set of the client
+                        j = j + 1 
+                        current.append(ind) # add that label to the current label set
+                        times[ind] += 1 
+                contain.append(current)
+            for k in range(K):
+                idx_k = [p[0] for p in dpairs if p[1]==k]
+                np.random.shuffle(idx_k)
+                split = np.array_split(idx_k, times[k])
+                ids = 0
+                # distribute subset of ids w.r.t the label to all clients having that label
+                for cid in range(num_users):
+                    if k in contain[cid]:
+                        local_datas[cid].extend(split[ids].tolist())
+                        ids += 1
+            """label_skew_dirichlet"""
+            min_size = 0
+            dpairs = [[did, self.train_data[did][-1]] for did in range(len(self.train_data))]
+            local_datas = [[] for _ in range(self.num_clients)]
+            while min_size < self.minvol:
+                idx_batch = [[] for i in range(self.num_clients)]
+                for k in range(self.num_classes):
+                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    np.random.shuffle(idx_k)
+                    proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
+                    ## Balance
+                    proportions = np.array([p * (len(idx_j) < len(self.train_data)/ self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
+                    proportions = proportions / proportions.sum()
+                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                    min_size = min([len(idx_j) for idx_j in idx_batch])
+            for j in range(self.num_clients):
+                np.random.shuffle(idx_batch[j])
+                local_datas[j].extend(idx_batch[j])
+    elif dist == 2:
+        """label_skew_dirichlet"""
+        min_size = 0
+        local_datas = [[] for _ in range(num_users)]
+        while min_size < 10:
+            idx_batch = [[] for i in range(num_users)]
+            for k in range(K):
+                idx_k = [p[0] for p in dpairs if p[1]==k]
+                np.random.shuffle(idx_k)
+                proportions = np.random.dirichlet(np.repeat(skew, num_users))
+                ## Balance
+                proportions = np.array([p * (len(idx_j) < len(dpairs)/ num_users) for p, idx_j in zip(proportions, idx_batch)])
+                proportions = proportions / proportions.sum()
+                proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                min_size = min([len(idx_j) for idx_j in idx_batch])
+        for j in range(num_users):
+            np.random.shuffle(idx_batch[j])
+            local_datas[j].extend(idx_batch[j])
     else:
-        times = [0 for _ in range(num_users)]
-        contain = []
-        for i in range(num_users):
-            current = [i % K] # set of label appear in client i
-            times[i % K] += 1 # the total number of appearance of that label in all client
-            j = 1 # the current size of the label set
-            while (j < num):
-                ind = np.random.randint(0, K) # get a random label
-                if (ind not in current): # if label not in current label set of the client
-                    j = j + 1 
-                    current.append(ind) # add that label to the current label set
-                    times[ind] += 1 
-            contain.append(current)
-        for k in range(K):
-            idx_k = [p[0] for p in dpairs if p[1]==k]
-            np.random.shuffle(idx_k)
-            split = np.array_split(idx_k, times[k])
-            ids = 0
-            # distribute subset of ids w.r.t the label to all clients having that label
-            for cid in range(num_users):
-                if k in contain[cid]:
-                    local_datas[cid].extend(split[ids].tolist())
-                    ids += 1
+        raise ValueError('Not valid dist')
 
     data_split, label_split={},{}
     for i in range(num_users):
