@@ -186,6 +186,57 @@ def non_iid(dataset, num_users, label_split=None):
         for j in range(num_users):
             np.random.shuffle(idx_batch[j])
             local_datas[j].extend(idx_batch[j])
+    elif dist ==4:
+        MIN_ALPHA = 0.01
+        alpha = (-4*np.log(self.skewness + 10e-8))**4
+        alpha = max(alpha, MIN_ALPHA)
+        labels = [self.train_data[did][-1] for did in range(len(self.train_data))]
+        lb_counter = collections.Counter(labels)
+        p = np.array([1.0*v/len(self.train_data) for v in lb_counter.values()])
+        lb_dict = {}
+        labels = np.array(labels)
+        for lb in range(len(lb_counter.keys())):
+            lb_dict[lb] = np.where(labels==lb)[0]
+        proportions = [np.random.dirichlet(alpha*p) for _ in range(self.num_clients)]
+        while np.any(np.isnan(proportions)):
+            proportions = [np.random.dirichlet(alpha * p) for _ in range(self.num_clients)]
+        while True:
+            # generate dirichlet distribution till ||E(proportion) - P(D)||<=1e-5*self.num_classes
+            mean_prop = np.mean(proportions, axis=0)
+            error_norm = ((mean_prop-p)**2).sum()
+            print("Error: {:.8f}".format(error_norm))
+            if error_norm<=1e-2/self.num_classes:
+                break
+            exclude_norms = []
+            for cid in range(self.num_clients):
+                mean_excid = (mean_prop*self.num_clients-proportions[cid])/(self.num_clients-1)
+                error_excid = ((mean_excid-p)**2).sum()
+                exclude_norms.append(error_excid)
+            excid = np.argmin(exclude_norms)
+            sup_prop = [np.random.dirichlet(alpha*p) for _ in range(self.num_clients)]
+            alter_norms = []
+            for cid in range(self.num_clients):
+                if np.any(np.isnan(sup_prop[cid])):
+                    continue
+                mean_alter_cid = mean_prop - proportions[excid]/self.num_clients + sup_prop[cid]/self.num_clients
+                error_alter = ((mean_alter_cid-p)**2).sum()
+                alter_norms.append(error_alter)
+            if len(alter_norms)>0:
+                alcid = np.argmin(alter_norms)
+                proportions[excid] = sup_prop[alcid]
+        local_datas = [[] for _ in range(self.num_clients)]
+        # self.dirichlet_dist = [] # for efficiently visualizing
+        for lb in lb_counter.keys():
+            lb_idxs = lb_dict[lb]
+            lb_proportion = np.array([pi[lb] for pi in proportions])
+            lb_proportion = lb_proportion/lb_proportion.sum()
+            lb_proportion = (np.cumsum(lb_proportion) * len(lb_idxs)).astype(int)[:-1]
+            lb_datas = np.split(lb_idxs, lb_proportion)
+            # self.dirichlet_dist.append([len(lb_data) for lb_data in lb_datas])
+            local_datas = [local_data+lb_data.tolist() for local_data,lb_data in zip(local_datas, lb_datas)]
+        # self.dirichlet_dist = np.array(self.dirichlet_dist).T
+        for i in range(self.num_clients):
+            np.random.shuffle(local_datas[i])        
     else:
         raise ValueError('Not valid dist')
 
