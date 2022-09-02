@@ -5,7 +5,7 @@ from config import cfg
 from torchvision import transforms
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
-
+import collections
 import medmnist_class
 import os 
 
@@ -148,25 +148,6 @@ def non_iid(dataset, num_users, label_split=None):
                     if k in contain[cid]:
                         local_datas[cid].extend(split[ids].tolist())
                         ids += 1
-            """label_skew_dirichlet"""
-            min_size = 0
-            dpairs = [[did, self.train_data[did][-1]] for did in range(len(self.train_data))]
-            local_datas = [[] for _ in range(self.num_clients)]
-            while min_size < self.minvol:
-                idx_batch = [[] for i in range(self.num_clients)]
-                for k in range(self.num_classes):
-                    idx_k = [p[0] for p in dpairs if p[1]==k]
-                    np.random.shuffle(idx_k)
-                    proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
-                    ## Balance
-                    proportions = np.array([p * (len(idx_j) < len(self.train_data)/ self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
-                    proportions = proportions / proportions.sum()
-                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
-                    min_size = min([len(idx_j) for idx_j in idx_batch])
-            for j in range(self.num_clients):
-                np.random.shuffle(idx_batch[j])
-                local_datas[j].extend(idx_batch[j])
     elif dist == 2:
         """label_skew_dirichlet"""
         min_size = 0
@@ -188,43 +169,43 @@ def non_iid(dataset, num_users, label_split=None):
             local_datas[j].extend(idx_batch[j])
     elif dist ==4:
         MIN_ALPHA = 0.01
-        alpha = (-4*np.log(self.skewness + 10e-8))**4
+        alpha = (-4*np.log(skew + 10e-8))**4
         alpha = max(alpha, MIN_ALPHA)
-        labels = [self.train_data[did][-1] for did in range(len(self.train_data))]
+        labels = [pair[-1] for pair in dpairs]
         lb_counter = collections.Counter(labels)
-        p = np.array([1.0*v/len(self.train_data) for v in lb_counter.values()])
+        p = np.array([1.0*v/len(dpairs) for v in lb_counter.values()])
         lb_dict = {}
         labels = np.array(labels)
         for lb in range(len(lb_counter.keys())):
             lb_dict[lb] = np.where(labels==lb)[0]
-        proportions = [np.random.dirichlet(alpha*p) for _ in range(self.num_clients)]
+        proportions = [np.random.dirichlet(alpha*p) for _ in range(num_users)]
         while np.any(np.isnan(proportions)):
-            proportions = [np.random.dirichlet(alpha * p) for _ in range(self.num_clients)]
+            proportions = [np.random.dirichlet(alpha * p) for _ in range(num_users)]
         while True:
             # generate dirichlet distribution till ||E(proportion) - P(D)||<=1e-5*self.num_classes
             mean_prop = np.mean(proportions, axis=0)
             error_norm = ((mean_prop-p)**2).sum()
             print("Error: {:.8f}".format(error_norm))
-            if error_norm<=1e-2/self.num_classes:
+            if error_norm<=1e-2/K:
                 break
             exclude_norms = []
-            for cid in range(self.num_clients):
-                mean_excid = (mean_prop*self.num_clients-proportions[cid])/(self.num_clients-1)
+            for cid in range(num_users):
+                mean_excid = (mean_prop*num_users-proportions[cid])/(num_users-1)
                 error_excid = ((mean_excid-p)**2).sum()
                 exclude_norms.append(error_excid)
             excid = np.argmin(exclude_norms)
-            sup_prop = [np.random.dirichlet(alpha*p) for _ in range(self.num_clients)]
+            sup_prop = [np.random.dirichlet(alpha*p) for _ in range(num_users)]
             alter_norms = []
-            for cid in range(self.num_clients):
+            for cid in range(num_users):
                 if np.any(np.isnan(sup_prop[cid])):
                     continue
-                mean_alter_cid = mean_prop - proportions[excid]/self.num_clients + sup_prop[cid]/self.num_clients
+                mean_alter_cid = mean_prop - proportions[excid]/num_users + sup_prop[cid]/num_users
                 error_alter = ((mean_alter_cid-p)**2).sum()
                 alter_norms.append(error_alter)
             if len(alter_norms)>0:
                 alcid = np.argmin(alter_norms)
                 proportions[excid] = sup_prop[alcid]
-        local_datas = [[] for _ in range(self.num_clients)]
+        local_datas = [[] for _ in range(num_users)]
         # self.dirichlet_dist = [] # for efficiently visualizing
         for lb in lb_counter.keys():
             lb_idxs = lb_dict[lb]
@@ -235,7 +216,7 @@ def non_iid(dataset, num_users, label_split=None):
             # self.dirichlet_dist.append([len(lb_data) for lb_data in lb_datas])
             local_datas = [local_data+lb_data.tolist() for local_data,lb_data in zip(local_datas, lb_datas)]
         # self.dirichlet_dist = np.array(self.dirichlet_dist).T
-        for i in range(self.num_clients):
+        for i in range(num_users):
             np.random.shuffle(local_datas[i])        
     else:
         raise ValueError('Not valid dist')
