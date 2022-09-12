@@ -215,7 +215,8 @@ def process_control():
         else:
             raise ValueError('Not valid data_split_mode')
     elif cfg['data_name'] in medmnist_class.medmnist_classes:
-        cfg['resnet'] = {'hidden_size': [32, 64, 128]}
+        basis = int(float(cfg['control']['basis']))
+        cfg['resnet'] = {'hidden_size': [basis, 2*basis, 4*basis]}            
         cfg['data_shape'] = [medmnist_class.medmnist_n_channels[cfg['data_name']], 28, 28]
         cfg['optimizer_name'] = 'SGD'
         cfg['lr'] = 0.001
